@@ -76,20 +76,47 @@ def main():
 
     for archive_url in wh.iter_archive_pages():
         archive_name = archive_url.split("/")[-1]
-        archive_file = os.path.join(res_dir, "{}.json".format(archive_name))
+        archive_dir = os.path.join(res_dir, archive_name)
 
-        # Files are only written to when whole archive has been scanned, so
-        # this is safe to skip
-        if os.path.exists(archive_file):
-            continue
+        if not os.path.exists(archive_dir):
+            os.mkdir(archive_dir)
 
-        user_content = {}
-        for desc in WarcDescriptor.iter_from_url(wh.get_archive_descriptor(archive_url)):
-            handle_descriptor(desc, user_content)
+        descriptors = WarcDescriptor.iter_from_url(wh.get_archive_descriptor(archive_url))
+        count = 0
+        done = False
 
-        with open(archive_file, "w") as fh:
-            print("dumping {} - {} users found".format(archive_file, len(user_content)))
-            json.dump(user_content, fh)
+        # There seems to be about 30k descriptors per archive file, doing
+        # a backup every 1k seems sensible enough
+        while not done:
+            user_content = {}
+            backup_file = os.path.join(archive_dir, "bak{}.json".format(count))
+
+            # If file is already there, just consume 1k items from the iterator
+            if os.path.exists(backup_file):
+                for _ in range(int(1e3)):
+                    next(descriptors, None)
+            else:
+                for _ in range(int(1e3)):
+                    desc = next(descriptors, None)
+                    if not desc:
+                        done = True
+                        break
+
+                    handle_descriptor(desc, user_content)
+
+                with open(backup_file, "w") as fh:
+                    json.dump(user_content, fh)
+
+            count += 1
+
+        # Now do a K-way merge of all the dicts
+        # user_content = {}
+        # for count, desc in enumerate(WarcDescriptor.iter_from_url(wh.get_archive_descriptor(archive_url))):
+        #     handle_descriptor(desc, user_content)
+
+        # with open(archive_file, "w") as fh:
+        #     print("dumping {} - {} users found".format(archive_file, len(user_content)))
+        #     json.dump(user_content, fh)
 
 
 if __name__ == "__main__":
